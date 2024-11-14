@@ -59,10 +59,26 @@ leaflet
 interface Cache {
   id: string;
   position: { lat: number; lng: number };
-  coins: number;
+  coins: Coin[];
+}
+
+interface Coin {
+  id: string;
+  origin: Cache;
 }
 
 const caches: Cache[] = [];
+
+function getGlobalCoordinates(lat: number, lng: number) {
+  const i = Math.round((lat / GRID_SIZE) * 10000);
+  const j = Math.round((lng / GRID_SIZE) * 10000);
+  return { i, j };
+}
+
+function generateCoinId(cache: Cache, serial: number): string {
+  const { i, j } = getGlobalCoordinates(cache.position.lat, cache.position.lng);
+  return `${i}:${j}#${serial}`;
+}
 
 function generateCaches() {
   for (let latOffset = -CACHE_RADIUS; latOffset <= CACHE_RADIUS; latOffset++) {
@@ -74,10 +90,26 @@ function generateCaches() {
       if (Math.random() < CACHE_DESNITY) {
         const cacheLat = playerPosition.lat + latOffset * GRID_SIZE;
         const cacheLng = playerPosition.lng + lngOffset * GRID_SIZE;
+        const { i, j } = getGlobalCoordinates(cacheLat, cacheLng);
         const cache = {
-          id: `${cacheLat.toFixed(6)},${cacheLng.toFixed(6)}`,
+          id: `${i},${j}`,
           position: { lat: cacheLat, lng: cacheLng },
-          coins: COIN_COUNT,
+          coins: Array.from({ length: COIN_COUNT }, (_, serial) => ({
+            id: generateCoinId(
+              {
+                id: `${i},${j}`,
+                position: { lat: cacheLat, lng: cacheLng },
+                coins: [],
+              },
+              serial,
+            ),
+            origin: {
+              id: `${i},${j}`,
+              position: { lat: cacheLat, lng: cacheLng },
+              coins: [],
+            },
+            serial,
+          })),
         };
         caches.push(cache);
         addCacheMarker(cache);
@@ -87,6 +119,8 @@ function generateCaches() {
 }
 
 function addCacheMarker(cache: Cache) {
+  const { i, j } = getGlobalCoordinates(cache.position.lat, cache.position.lng);
+
   const marker = leaflet
     .marker([cache.position.lat, cache.position.lng])
     .addTo(map);
@@ -94,17 +128,17 @@ function addCacheMarker(cache: Cache) {
   marker.bindPopup(() => {
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-    <div>There is a cache here at ${cache.position.lat}, ${cache.position.lng} <br>Coins: ${cache.coins}</div><br>
+    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
     <button id="collectCoins">Collect Coins</button>
     <button id="depositCoins">Deposit Coins</button>`;
 
     popupDiv
       .querySelector<HTMLButtonElement>("#collectCoins")!
       .addEventListener("click", () => {
-        collectedCoins += cache.coins;
-        cache.coins = 0;
+        collectedCoins += cache.coins.length;
+        cache.coins = [];
         popupDiv.innerHTML = `
-    <div>There is a cache here at ${cache.position.lat}, ${cache.position.lng} <br>Coins: ${cache.coins}</div><br>
+    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
     <button id="collectCoins">Collect Coins</button>
     <button id="depositCoins">Deposit Coins</button>`;
         updateStatusPanel();
@@ -113,11 +147,19 @@ function addCacheMarker(cache: Cache) {
     popupDiv
       .querySelector<HTMLButtonElement>("#depositCoins")!
       .addEventListener("click", () => {
-        cache.coins += collectedCoins;
+        const newCoins = Array.from(
+          { length: collectedCoins },
+          (_, serial) => ({
+            id: generateCoinId(cache, serial),
+            origin: cache,
+            serial,
+          }),
+        );
+        cache.coins.push(...newCoins);
         collectedCoins = 0;
 
         popupDiv.innerHTML = `
-    <div>There is a cache here at ${cache.position.lat}, ${cache.position.lng} <br>Coins: ${cache.coins}</div><br>
+    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
     <button id="collectCoins">Collect Coins</button>
     <button id="depositCoins">Deposit Coins</button>`;
 
