@@ -65,6 +65,7 @@ interface Cache {
 interface Coin {
   id: string;
   origin: Cache;
+  serial: number;
 }
 
 const caches: Cache[] = [];
