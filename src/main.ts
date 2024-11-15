@@ -121,6 +121,10 @@ function generateCaches() {
 
 function addCacheMarker(cache: Cache) {
   const { i, j } = getGlobalCoordinates(cache.position.lat, cache.position.lng);
+  const popupDivText =
+    `<div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
+  <button id="collectCoins">Collect Coins</button>
+  <button id="depositCoins">Deposit Coins</button>`;
 
   const marker = leaflet
     .marker([cache.position.lat, cache.position.lng])
@@ -128,20 +132,14 @@ function addCacheMarker(cache: Cache) {
 
   marker.bindPopup(() => {
     const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = `
-    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
-    <button id="collectCoins">Collect Coins</button>
-    <button id="depositCoins">Deposit Coins</button>`;
+    popupDiv.innerHTML = popupDivText;
 
     popupDiv
       .querySelector<HTMLButtonElement>("#collectCoins")!
       .addEventListener("click", () => {
         collectedCoins += cache.coins.length;
         cache.coins = [];
-        popupDiv.innerHTML = `
-    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
-    <button id="collectCoins">Collect Coins</button>
-    <button id="depositCoins">Deposit Coins</button>`;
+        popupDiv.innerHTML = popupDivText;
         updateStatusPanel();
       });
 
@@ -159,10 +157,7 @@ function addCacheMarker(cache: Cache) {
         cache.coins.push(...newCoins);
         collectedCoins = 0;
 
-        popupDiv.innerHTML = `
-    <div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
-    <button id="collectCoins">Collect Coins</button>
-    <button id="depositCoins">Deposit Coins</button>`;
+        popupDiv.innerHTML = popupDivText;
 
         updateStatusPanel();
       });
