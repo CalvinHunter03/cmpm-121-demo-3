@@ -41,7 +41,7 @@ const INITIAL_LNG = -122.06277128548504;
 const GRID_SIZE = 0.0001;
 const CACHE_RADIUS = 8;
 const CACHE_DESNITY = 0.1;
-const COIN_COUNT = 5;
+const _COIN_COUNT = 5;
 
 let playerPosition = { lat: INITIAL_LAT, lng: INITIAL_LNG };
 let collectedCoins = 0;
@@ -56,19 +56,57 @@ leaflet
   })
   .addTo(map);
 
-interface Cache {
-  id: string;
-  position: { lat: number; lng: number };
-  coins: Coin[];
-}
-
 interface Coin {
   id: string;
   origin: Cache;
   serial: number;
 }
 
-const caches: Cache[] = [];
+interface Cache {
+  id: string;
+  position: { lat: number; lng: number };
+  coins: Coin[];
+
+  toMomento(): string;
+  fromMomento(momento: string): void;
+}
+
+class CacheImpl implements Cache {
+  id: string;
+  position: { lat: number; lng: number };
+  coins: Coin[];
+
+  constructor(
+    id: string,
+    position: { lat: number; lng: number },
+    coins: Coin[] = [],
+  ) {
+    this.id = id;
+    this.position = position;
+    this.coins = coins;
+  }
+
+  toMomento(): string {
+    return JSON.stringify({
+      coins: this.coins.map((coin) => ({
+        id: coin.id,
+        serial: coin.serial,
+        originId: coin.origin.id,
+      })),
+    });
+  }
+
+  fromMomento(momento: string): void {
+    const data = JSON.parse(momento);
+    this.coins = data.coins.map((coin: Coin) => ({
+      id: coin.id,
+      serial: coin.serial,
+      origin: cacheStates[coin.id] || this,
+    }));
+  }
+}
+
+const cacheStates: Record<string, Cache> = {};
 
 function getGlobalCoordinates(lat: number, lng: number) {
   const i = Math.round((lat / GRID_SIZE) * 10000);
@@ -88,40 +126,61 @@ function generateCaches() {
       lngOffset <= CACHE_RADIUS;
       lngOffset++
     ) {
-      if (Math.random() < CACHE_DESNITY) {
-        const cacheLat = playerPosition.lat + latOffset * GRID_SIZE;
-        const cacheLng = playerPosition.lng + lngOffset * GRID_SIZE;
-        const { i, j } = getGlobalCoordinates(cacheLat, cacheLng);
-        const cache = {
-          id: `${i},${j}`,
-          position: { lat: cacheLat, lng: cacheLng },
-          coins: Array.from({ length: COIN_COUNT }, (_, serial) => ({
-            id: generateCoinId(
-              {
-                id: `${i},${j}`,
-                position: { lat: cacheLat, lng: cacheLng },
-                coins: [],
-              },
-              serial,
-            ),
-            origin: {
-              id: `${i},${j}`,
-              position: { lat: cacheLat, lng: cacheLng },
-              coins: [],
-            },
-            serial,
-          })),
-        };
-        caches.push(cache);
-        addCacheMarker(cache);
+      const cacheLat = playerPosition.lat + latOffset * GRID_SIZE;
+      const cacheLng = playerPosition.lng + lngOffset * GRID_SIZE;
+      const { i, j } = getGlobalCoordinates(cacheLat, cacheLng);
+
+      const cacheId = `${i},${j}`;
+
+      let cache = cacheStates[cacheId];
+      if (!cache) {
+        if (Math.random() > CACHE_DESNITY) continue;
+
+        cache = new CacheImpl(cacheId, { lat: cacheLat, lng: cacheLng });
+        cacheStates[cacheId] = cache;
       }
+
+      if (localStorage.getItem(cacheId)) {
+        const momento = localStorage.getItem(cacheId);
+        cache.fromMomento(momento!);
+      }
+
+      addCacheMarker(cache);
     }
   }
 }
 
+function clearCaches() {
+  const visibleRange: string[] = [];
+  for (let latOffset = -CACHE_RADIUS; latOffset <= CACHE_RADIUS; latOffset++) {
+    for (
+      let lngOffset = -CACHE_RADIUS;
+      lngOffset <= CACHE_RADIUS;
+      lngOffset++
+    ) {
+      const cacheLat = playerPosition.lat + latOffset * GRID_SIZE;
+      const cacheLng = playerPosition.lng + lngOffset * GRID_SIZE;
+      const { i, j } = getGlobalCoordinates(cacheLat, cacheLng);
+      visibleRange.push(`${i},${j}`);
+    }
+  }
+
+  map.eachLayer((layer: leaflet.Layer) => {
+    if (layer instanceof leaflet.Marker && layer !== playerMarker) {
+      const markerLatLng = layer.getLatLng();
+      const { i, j } = getGlobalCoordinates(markerLatLng.lat, markerLatLng.lng);
+      const cacheId = `${i},${j}`;
+
+      if (visibleRange.indexOf(cacheId) === -1) {
+        map.removeLayer(layer);
+      }
+    }
+  });
+}
+
 function addCacheMarker(cache: Cache) {
   const { i, j } = getGlobalCoordinates(cache.position.lat, cache.position.lng);
-  const popupDivText =
+  const _popupDivText =
     `<div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
   <button id="collectCoins">Collect Coins</button>
   <button id="depositCoins">Deposit Coins</button>`;
@@ -132,15 +191,23 @@ function addCacheMarker(cache: Cache) {
 
   marker.bindPopup(() => {
     const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = popupDivText;
+    popupDiv.innerHTML =
+      `<div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
+    <button id="collectCoins">Collect Coins</button>
+    <button id="depositCoins">Deposit Coins</button>`;
 
     popupDiv
       .querySelector<HTMLButtonElement>("#collectCoins")!
       .addEventListener("click", () => {
         collectedCoins += cache.coins.length;
         cache.coins = [];
-        popupDiv.innerHTML = popupDivText;
+        popupDiv.innerHTML =
+          `<div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
+        <button id="collectCoins">Collect Coins</button>
+        <button id="depositCoins">Deposit Coins</button>`;
         updateStatusPanel();
+
+        localStorage.setItem(cache.id, cache.toMomento());
       });
 
     popupDiv
@@ -157,9 +224,13 @@ function addCacheMarker(cache: Cache) {
         cache.coins.push(...newCoins);
         collectedCoins = 0;
 
-        popupDiv.innerHTML = popupDivText;
+        popupDiv.innerHTML =
+          `<div>There is a cache here at ${i}, ${j} <br>Coins: ${cache.coins.length}</div><br>
+        <button id="collectCoins">Collect Coins</button>
+        <button id="depositCoins">Deposit Coins</button>`;
 
         updateStatusPanel();
+        localStorage.setItem(cache.id, cache.toMomento());
       });
 
     return popupDiv;
@@ -189,8 +260,15 @@ northButton.addEventListener("click", () => movePlayer(GRID_SIZE, 0));
 function movePlayer(latOffset: number, lngOffset: number) {
   playerPosition.lat += latOffset;
   playerPosition.lng += lngOffset;
+
   updatePlayerPosition();
-  //generateCaches();
+  regenerateCaches();
+}
+
+function regenerateCaches() {
+  clearCaches();
+
+  generateCaches();
 }
 
 resetButton.addEventListener("click", () => {
