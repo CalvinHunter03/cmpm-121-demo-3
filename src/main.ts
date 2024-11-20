@@ -35,18 +35,27 @@ controlPanelDiv.append(resetButton);
 const statusPanelDiv = document.createElement("div");
 app?.append(statusPanelDiv);
 
-const OAKES_CLASSROOM = [36.98949379578401, -122.06277128548504];
+const _OAKES_CLASSROOM = [36.98949379578401, -122.06277128548504];
 const INITIAL_LAT = 36.98949379578401;
 const INITIAL_LNG = -122.06277128548504;
 const GRID_SIZE = 0.0001;
 const CACHE_RADIUS = 8;
 const CACHE_DESNITY = 0.1;
 const _COIN_COUNT = 5;
+const MAX_VISIBLE_CACHES = 30;
 
-let playerPosition = { lat: INITIAL_LAT, lng: INITIAL_LNG };
-let collectedCoins = 0;
+let playerPosition = JSON.parse(localStorage.getItem("playerPosition")!) || {
+  lat: INITIAL_LAT,
+  lng: INITIAL_LNG,
+};
+let collectedCoins = JSON.parse(localStorage.getItem("collectedCoins")!) || 0;
 
-const map = leaflet.map("map").setView(OAKES_CLASSROOM, 19);
+let movementHistory: { lat: number; lng: number }[] =
+  JSON.parse(localStorage.getItem("movementHistory")!) || [];
+
+const map = leaflet
+  .map("map")
+  .setView([playerPosition.lat, playerPosition.lng], 19);
 
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -119,6 +128,8 @@ function generateCoinId(cache: Cache, serial: number): string {
   return `${i}:${j}#${serial}`;
 }
 
+const visibleCaches: Set<string> = new Set();
+
 function generateCaches() {
   for (let latOffset = -CACHE_RADIUS; latOffset <= CACHE_RADIUS; latOffset++) {
     for (
@@ -132,11 +143,26 @@ function generateCaches() {
 
       const cacheId = `${i},${j}`;
 
+      if (visibleCaches.size >= MAX_VISIBLE_CACHES) {
+        return;
+      }
+
       let cache = cacheStates[cacheId];
       if (!cache) {
         if (Math.random() > CACHE_DESNITY) continue;
 
         cache = new CacheImpl(cacheId, { lat: cacheLat, lng: cacheLng });
+
+        const numberOfCoins = Math.floor(Math.random() * (_COIN_COUNT + 1));
+        for (let serial = 0; serial < numberOfCoins; serial++) {
+          const coin: Coin = {
+            id: generateCoinId(cache, serial),
+            origin: cache,
+            serial,
+          };
+          cache.coins.push(coin);
+        }
+
         cacheStates[cacheId] = cache;
       }
 
@@ -145,13 +171,42 @@ function generateCaches() {
         cache.fromMomento(momento!);
       }
 
-      addCacheMarker(cache);
+      if (!visibleCaches.has(cacheId)) {
+        addCacheMarker(cache);
+        visibleCaches.add(cacheId);
+      }
     }
   }
+  enforceCacheLimit();
+}
+
+function enforceCacheLimit() {
+  if (visibleCaches.size <= MAX_VISIBLE_CACHES) return;
+
+  const excessCount = visibleCaches.size - MAX_VISIBLE_CACHES;
+
+  let removedCount = 0;
+  visibleCaches.forEach((cacheId) => {
+    if (removedCount >= excessCount) return;
+
+    const cache = cacheStates[cacheId];
+    map.eachLayer((layer: leaflet.Layer) => {
+      if (
+        layer instanceof leaflet.Marker &&
+        layer.getLatLng().lat === cache.position.lat &&
+        layer.getLatLng().lng === cache.position.lng
+      ) {
+        map.removeLayer(layer);
+        visibleCaches.delete(cacheId);
+        removedCount++;
+      }
+    });
+  });
 }
 
 function clearCaches() {
   const visibleRange: string[] = [];
+  visibleCaches.clear();
   for (let latOffset = -CACHE_RADIUS; latOffset <= CACHE_RADIUS; latOffset++) {
     for (
       let lngOffset = -CACHE_RADIUS;
@@ -243,9 +298,49 @@ const playerMarker = leaflet
   })
   .addTo(map);
 
-function updatePlayerPosition() {
-  playerMarker.setLatLng([playerPosition.lat, playerPosition.lng]);
-  map.setView([playerPosition.lat, playerPosition.lng], 19);
+const movementPolyline = leaflet
+  .polyline(movementHistory, { color: "blue" })
+  .addTo(map);
+
+function updatePlayerPosition(lat: number, lng: number) {
+  playerPosition = { lat, lng };
+  playerMarker.setLatLng([lat, lng]);
+  map.setView([lat, lng]);
+  movementHistory.push({ lat, lng });
+  movementPolyline.setLatLngs(movementHistory);
+
+  localStorage.setItem("playerPosition", JSON.stringify(playerPosition));
+  localStorage.setItem("movementHistory", JSON.stringify(movementHistory));
+}
+
+function resetGame() {
+  if (prompt("Are you sure you want to reset? (yes / no)") === "yes") {
+    localStorage.clear();
+    playerPosition = { lat: INITIAL_LAT, lng: INITIAL_LNG };
+    collectedCoins = 0;
+    movementHistory = [];
+    movementPolyline.setLatLngs([]);
+    updatePlayerPosition(INITIAL_LAT, INITIAL_LNG);
+  }
+}
+
+function toggleGeolocation() {
+  if ("geolocation" in navigator) {
+    navigator.geolocation.watchPosition(
+      (position) => {
+        updatePlayerPosition(
+          position.coords.latitude,
+          position.coords.longitude,
+        );
+      },
+      (error) => {
+        console.error("Geolocation error:", error.message);
+      },
+    );
+    generateCaches();
+  } else {
+    alert("Geolocation is not supported by your browser.");
+  }
 }
 
 function updateStatusPanel() {
@@ -261,22 +356,16 @@ function movePlayer(latOffset: number, lngOffset: number) {
   playerPosition.lat += latOffset;
   playerPosition.lng += lngOffset;
 
-  updatePlayerPosition();
+  updatePlayerPosition(playerPosition.lat, playerPosition.lng);
   regenerateCaches();
 }
 
 function regenerateCaches() {
   clearCaches();
-
   generateCaches();
 }
 
-resetButton.addEventListener("click", () => {
-  playerPosition = { lat: INITIAL_LAT, lng: INITIAL_LNG };
-  collectedCoins = 0;
-  updatePlayerPosition();
-  updateStatusPanel();
-});
-
+sensorButton.addEventListener("click", toggleGeolocation);
+resetButton.addEventListener("click", resetGame);
 generateCaches();
 updateStatusPanel();
