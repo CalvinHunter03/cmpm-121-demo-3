@@ -1,39 +1,18 @@
 import leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
+import { UIManager } from "./UIManager";
 
 import "./leafletWorkaround.ts";
 
 const app = document.querySelector<HTMLDivElement>("#app");
-const controlPanelDiv = document.createElement("div");
-app?.append(controlPanelDiv);
 
-const sensorButton = document.createElement("button");
-sensorButton.innerHTML = "🌐";
-controlPanelDiv.append(sensorButton);
+const uiManager = new UIManager(app);
+uiManager.initializeButtons(movePlayer, resetGame, toggleGeoLocation);
 
-const northButton = document.createElement("button");
-northButton.innerHTML = "⬆️";
-controlPanelDiv.append(northButton);
-
-const southButton = document.createElement("button");
-southButton.innerHTML = "⬇️";
-controlPanelDiv.append(southButton);
-
-const westButton = document.createElement("button");
-westButton.innerHTML = "⬅️";
-controlPanelDiv.append(westButton);
-
-const eastButton = document.createElement("button");
-eastButton.innerHTML = "➡️";
-controlPanelDiv.append(eastButton);
-
-const resetButton = document.createElement("button");
-resetButton.innerHTML = "🚮";
-controlPanelDiv.append(resetButton);
-
-const statusPanelDiv = document.createElement("div");
-app?.append(statusPanelDiv);
+function updateStatusPanel(){
+  uiManager.updateStatusPanel(collectedCoins);
+}
 
 const _OAKES_CLASSROOM = [36.98949379578401, -122.06277128548504];
 const INITIAL_LAT = 36.98949379578401;
@@ -343,14 +322,7 @@ function toggleGeolocation() {
   }
 }
 
-function updateStatusPanel() {
-  statusPanelDiv.innerHTML = `Collected Coins: ${collectedCoins}`;
-}
 
-eastButton.addEventListener("click", () => movePlayer(0, GRID_SIZE));
-westButton.addEventListener("click", () => movePlayer(0, -GRID_SIZE));
-southButton.addEventListener("click", () => movePlayer(-GRID_SIZE, 0));
-northButton.addEventListener("click", () => movePlayer(GRID_SIZE, 0));
 
 function movePlayer(latOffset: number, lngOffset: number) {
   playerPosition.lat += latOffset;
@@ -364,8 +336,5 @@ function regenerateCaches() {
   clearCaches();
   generateCaches();
 }
-
-sensorButton.addEventListener("click", toggleGeolocation);
-resetButton.addEventListener("click", resetGame);
 generateCaches();
 updateStatusPanel();
